@@ -7,9 +7,8 @@ import time
 
 from playwright.async_api import async_playwright
 
-import analyzer
-import filler
-import persona as persona_mod
+from formfeeder import analyzer, filler
+from formfeeder import persona as persona_mod
 
 
 def main():

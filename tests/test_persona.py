@@ -1,6 +1,6 @@
 import random
 import pytest
-from persona import generate, _pick, _weighted_pick
+from formfeeder.persona import generate, _pick, _weighted_pick
 
 
 def make_analysis(dimensions, stances=None):

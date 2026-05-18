@@ -107,11 +107,14 @@ def build_response_schema(questions):
         q_type = q["type"]
 
         if q_type == "checkbox":
-            properties[q["id"]] = (
-                {"type": "array", "items": {"type": "string"}}
-                if has_other
-                else {"type": "array", "items": {"type": "string", "enum": q["options"]}}
+            items_schema = (
+                {"type": "string"} if has_other
+                else {"type": "string", "enum": q["options"]}
             )
+            cb_schema = {"type": "array", "items": items_schema}
+            if q.get("required"):
+                cb_schema["minItems"] = 1
+            properties[q["id"]] = cb_schema
         elif q_type in ("radio", "dropdown"):
             properties[q["id"]] = (
                 {"type": "string"}

@@ -1,5 +1,5 @@
 import pytest
-from prompts import build_responder_prompt, build_response_schema, _format_question
+from formfeeder.prompts import build_responder_prompt, build_response_schema, _format_question
 
 
 SAMPLE_ANALYSIS = {

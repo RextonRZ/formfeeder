@@ -4,7 +4,7 @@ import re
 
 import httpx
 
-from prompts import build_responder_prompt, build_response_schema
+from formfeeder.prompts import build_responder_prompt, build_response_schema
 
 
 async def scrape_page(page):
@@ -150,12 +150,13 @@ async def fill_question(page, q, answer):
                     break
 
     elif q_type == "checkbox":
-        boxes = await item.query_selector_all('[role="checkbox"]')
-        all_labels = {
-            (await b.get_attribute("aria-label") or "").strip()
-            for b in boxes
-        }
+        boxes = [b for b in await item.query_selector_all('[role="checkbox"]') if await b.is_visible()]
+        if not boxes:
+            return
+        all_labels = {(await b.get_attribute("aria-label") or "").strip() for b in boxes}
         wanted = [str(v) for v in (answer if isinstance(answer, list) else [answer])]
+        if not wanted:
+            return
         other_text = None
 
         for val in wanted:
@@ -187,11 +188,13 @@ async def fill_question(page, q, answer):
             await page.wait_for_selector('[role="option"]', timeout=4000)
             await asyncio.sleep(0.5)
         except Exception:
-            pass
-        options = await page.query_selector_all('[role="option"]')
+            await page.keyboard.press("Escape")
+            return
         clicked = False
-        for opt in options:
-            if (await opt.inner_text()).strip() == str(answer):
+        for opt in await page.query_selector_all('[role="option"]'):
+            if not await opt.is_visible():
+                continue  # skip stale options from previously opened dropdowns
+            if (await opt.inner_text()).strip().lower() == str(answer).strip().lower():
                 await opt.click()
                 clicked = True
                 break
