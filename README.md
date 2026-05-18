@@ -8,7 +8,7 @@ generates diverse personas, and submits realistic responses — automatically.
 ## Install
 
 ```bash
-pip install git+https://github.com/YOUR_USERNAME/formfeeder.git
+pip install git+https://github.com/RextonRZ/formfeeder.git
 playwright install chromium
 ```
 
