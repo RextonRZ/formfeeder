@@ -22,9 +22,13 @@ def generate(analysis):
 
     for dim in analysis["persona_dimensions"]:
         if dim["type"] == "numeric_range" and len(dim["sample_values"]) >= 2:
-            lo = int(dim["sample_values"][0])
-            hi = int(dim["sample_values"][1])
-            persona[dim["name"]] = random.randint(lo, hi)
+            try:
+                lo = int(dim["sample_values"][0])
+                hi = int(dim["sample_values"][1])
+                persona[dim["name"]] = random.randint(lo, hi)
+            except (ValueError, TypeError):
+                # sample_values aren't plain integers — treat as categorical
+                persona[dim["name"]] = _weighted_pick(dim["sample_values"], dim.get("weights"))
         else:
             persona[dim["name"]] = _weighted_pick(
                 dim["sample_values"], dim.get("weights")
