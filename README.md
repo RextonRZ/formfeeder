@@ -9,7 +9,7 @@ generates diverse personas, and submits realistic responses — automatically.
 
 ```bash
 pip install git+https://github.com/RextonRZ/formfeeder.git
-playwright install chromium
+python -m playwright install chromium
 ```
 
 That's it. No cloning, no config files.
