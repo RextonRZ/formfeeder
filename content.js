@@ -200,7 +200,6 @@ async function runFill(analysis, persona, runIndex, totalRuns) {
         status('No questions found for 2 consecutive pages — stopping run');
         break;
       }
-      break;
     }
     pagesWithoutProgress = 0;
 
