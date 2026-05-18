@@ -23,6 +23,7 @@ def main():
         help="Gemini API key (or set GEMINI_API_KEY env var)",
     )
     parser.add_argument("--hint", default="", help="Optional context hint for the AI")
+    parser.add_argument("--debug", action="store_true", help="Show browser window while filling")
     args = parser.parse_args()
 
     api_key = args.key or os.environ.get("GEMINI_API_KEY")
@@ -34,12 +35,12 @@ def main():
         print("Error: URL must contain docs.google.com/forms")
         raise SystemExit(1)
 
-    asyncio.run(_run(args.url, args.count, api_key, args.hint))
+    asyncio.run(_run(args.url, args.count, api_key, args.hint, args.debug))
 
 
-async def _run(url, count, api_key, hint):
+async def _run(url, count, api_key, hint, debug=False):
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
+        browser = await pw.chromium.launch(headless=not debug, slow_mo=500 if debug else 0)
         page = await browser.new_page()
 
         await page.goto(url, wait_until="networkidle")
@@ -58,14 +59,22 @@ async def _run(url, count, api_key, hint):
             )
             print(f"[formfeeder] Run {i}/{count} — {summary}")
 
+            run_ok = False
             try:
                 await filler.fill_form(page, analysis, persona, api_key)
                 _log_run(i, persona)
                 submitted += 1
+                run_ok = True
             except Exception as e:
                 print(f"[formfeeder]   Run {i} failed: {e}")
 
             if i < count:
+                if not run_ok:
+                    # Run failed mid-form — navigate back to the start URL for the next run
+                    print(f"[formfeeder]   Resetting to form URL for next run...")
+                    await page.goto(url, wait_until="networkidle")
+                    continue
+
                 await page.wait_for_timeout(1500)
                 found = False
                 for selector in ["a", "[role='link']"]:
@@ -81,8 +90,8 @@ async def _run(url, count, api_key, hint):
                         break
 
                 if not found:
-                    print("[formfeeder] No 'Submit another' link — stopping")
-                    break
+                    print("[formfeeder] No 'Submit another' link — resetting to form URL...")
+                    await page.goto(url, wait_until="networkidle")
 
         print(f"[formfeeder] Done: {submitted}/{count} responses submitted")
         await browser.close()

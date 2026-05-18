@@ -94,12 +94,26 @@ async def scrape_page(page):
     return questions
 
 
+async def _find_item(page, title):
+    """Re-query a question's DOM element by title to avoid stale element references."""
+    items = await page.query_selector_all('div[role="listitem"]')
+    for item in items:
+        heading = await item.query_selector('div[role="heading"]')
+        if not heading:
+            continue
+        text = re.sub(r"\s*\*$", "", await heading.inner_text()).strip()
+        if text == title:
+            return item
+    return None
+
+
 async def fill_question(page, q, answer):
     """Fill a single question with the given answer."""
     if answer is None:
         return
 
-    item = q["locator"]
+    # Re-query fresh — stored locator may be stale after scrape_page opened dropdowns
+    item = await _find_item(page, q["title"]) or q["locator"]
     q_type = q["type"]
 
     if q_type == "short_text":
@@ -170,8 +184,8 @@ async def fill_question(page, q, answer):
             return
         await listbox.click()
         try:
-            await page.wait_for_selector('[role="option"]', timeout=2000)
-            await asyncio.sleep(0.3)
+            await page.wait_for_selector('[role="option"]', timeout=4000)
+            await asyncio.sleep(0.5)
         except Exception:
             pass
         options = await page.query_selector_all('[role="option"]')
@@ -230,15 +244,86 @@ async def _call_gemini_responder(prompt, schema, api_key):
         raise RuntimeError("Rate limit: failed after 3 retries")
 
 
+async def _wait_for_page_change(page, prev_heading):
+    """Wait for Google Forms SPA to navigate to a new section."""
+    try:
+        await page.wait_for_function(
+            """(prev) => {
+                const h = document.querySelector('div[role="listitem"] div[role="heading"]');
+                if (!h) return false;                      // still transitioning — no questions yet
+                if (!prev) return true;                    // intro→first page: any question is fine
+                return h.innerText.trim() !== prev;        // question→next: new heading has loaded
+            }""",
+            arg=prev_heading,
+            timeout=8000,
+        )
+    except Exception:
+        await asyncio.sleep(2)  # fallback if function times out
+
+
 async def fill_form(page, analysis, persona, api_key):
-    """Fill all pages of the current form and submit."""
+    """Fill all pages of the current form and submit. Raises RuntimeError if form not submitted."""
     all_answers = {}
     page_num = 1
+    submitted = False
 
-    while True:
+    visit_counts = {}
+
+    while page_num <= 30:  # safety cap
         questions = await scrape_page(page)
+
+        if questions:
+            heading_key = questions[0]["title"]
+            visit_counts[heading_key] = visit_counts.get(heading_key, 0) + 1
+
+            if visit_counts[heading_key] >= 5:
+                print(f"[formfeeder]   Stuck in loop at '{heading_key[:40]}' — stopping")
+                break
+
+            if visit_counts[heading_key] > 1:
+                # Revisiting a section — answers already filled, just click through
+                print(f"[formfeeder]   Page {page_num}: revisit — clicking through")
+                buttons = await page.query_selector_all('[role="button"], button')
+                sub = next_b = None
+                for btn in buttons:
+                    t = (await btn.inner_text()).strip()
+                    if re.search(r"submit|hantar", t, re.IGNORECASE) and not re.search(r"next|back|cancel", t, re.IGNORECASE):
+                        sub = btn; break
+                if not sub:
+                    for btn in buttons:
+                        t = (await btn.inner_text()).strip()
+                        if re.search(r"next|seterusnya|berikutnya", t, re.IGNORECASE):
+                            next_b = btn; break
+                if sub:
+                    await sub.click()
+                    await page.wait_for_load_state("networkidle")
+                    print("[formfeeder]   Submitted ✓")
+                    submitted = True
+                    break
+                elif next_b:
+                    await next_b.click()
+                    await _wait_for_page_change(page, heading_key)
+                    page_num += 1
+                    continue
+                else:
+                    break
+
         if not questions:
-            print("[formfeeder]   No questions found — stopping")
+            # Intro/title page with no questions — look for a Next button to proceed
+            buttons = await page.query_selector_all('[role="button"], button')
+            next_btn = None
+            for btn in buttons:
+                text = (await btn.inner_text()).strip()
+                if re.search(r"next|seterusnya|berikutnya|start|mula", text, re.IGNORECASE):
+                    next_btn = btn
+                    break
+            if next_btn:
+                print(f"[formfeeder]   Page {page_num}: intro page — clicking Next")
+                await next_btn.click()
+                await _wait_for_page_change(page, "")
+                page_num += 1
+                continue
+            print("[formfeeder]   No questions and no Next button — stopping")
             break
 
         cleaned = [{k: v for k, v in q.items() if k != "locator"} for q in questions]
@@ -277,11 +362,16 @@ async def fill_form(page, analysis, persona, api_key):
             await submit_btn.click()
             await page.wait_for_load_state("networkidle")
             print("[formfeeder]   Submitted ✓")
+            submitted = True
             break
         elif next_btn:
+            first_heading = questions[0]["title"] if questions else ""
             await next_btn.click()
-            await page.wait_for_load_state("networkidle")
+            await _wait_for_page_change(page, first_heading)
             page_num += 1
         else:
             print("[formfeeder]   No Next or Submit button found — stopping")
             break
+
+    if not submitted:
+        raise RuntimeError("Form was not submitted — stopped before the last page")
