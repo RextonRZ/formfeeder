@@ -17,36 +17,59 @@ That's it. No cloning, no config files.
 ## Usage
 
 ```bash
-python -m formfeeder \
-  --url "https://docs.google.com/forms/d/e/YOUR_FORM_ID/viewform" \
-  --count 10 \
-  --key YOUR_GEMINI_API_KEY
+python -m formfeeder --url "<google form url>" --count <number of responses> --key "<gemini api key>"
 ```
 
-Or set your key once as an environment variable so you don't type it every time:
+**Example:**
+```bash
+python -m formfeeder \
+  --url "https://docs.google.com/forms/d/e/YOUR_FORM_ID/viewform" \
+  --count 20 \
+  --key "AIzaSy..."
+```
+
+### Optional flags
+
+| Flag | Description |
+|---|---|
+| `--hint "..."` | Extra context for the AI — use this if the bot generates the wrong type of respondents. E.g. `--hint "Respondents are university students aged 18-25"` |
+| `--debug` | Show the browser window while filling so you can watch it work |
+
+**Example with flags:**
+```bash
+python -m formfeeder \
+  --url "https://docs.google.com/forms/d/e/YOUR_FORM_ID/viewform" \
+  --count 20 \
+  --key "AIzaSy..." \
+  --hint "University students aged 18-25" \
+  --debug
+```
+
+### Set your API key as an environment variable (so you don't type it every time)
 
 **Windows (PowerShell):**
 ```powershell
-$env:GEMINI_API_KEY="AIza..."
-python -m formfeeder --url "..." --count 10
+$env:GEMINI_API_KEY="AIzaSy..."
+python -m formfeeder --url "..." --count 20
 ```
 
 **Mac/Linux:**
 ```bash
-export GEMINI_API_KEY=AIza...
-python -m formfeeder --url "..." --count 10
+export GEMINI_API_KEY=AIzaSy...
+python -m formfeeder --url "..." --count 20
 ```
-
-Optional flags:
-
-| Flag | Description |
-|---|---|
-| `--hint "..."` | Extra context for the AI (e.g. "UM students aged 18-25") |
-| `--debug` | Show the browser window while filling |
 
 ## Get a Gemini API key
 
 Free at [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+
+## Updating
+
+To get the latest version:
+
+```bash
+pip install --upgrade git+https://github.com/RextonRZ/formfeeder.git
+```
 
 ## How it works
 
