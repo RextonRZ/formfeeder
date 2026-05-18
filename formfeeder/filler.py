@@ -25,7 +25,7 @@ async def scrape_page(page):
         )
         required = required_el is not None
         q_id = f"q{idx}"
-        q_type = options = scale_low = scale_high = None
+        q_type = options = scale_low = scale_high = rows = None
 
         if await item.query_selector("textarea"):
             q_type = "long_text"
@@ -37,15 +37,23 @@ async def scrape_page(page):
             q_type = "time"
 
         elif await item.query_selector('[role="radiogroup"]'):
-            radios = await item.query_selector_all('[role="radio"]')
-            labels = [(await r.get_attribute("aria-label") or "").strip() for r in radios]
-            if len(labels) >= 3 and all(re.match(r"^\d+$", l) for l in labels):
-                q_type = "scale"
-                nums = [int(l) for l in labels]
-                scale_low, scale_high = min(nums), max(nums)
+            radiogroups = await item.query_selector_all('[role="radiogroup"]')
+            if len(radiogroups) > 1:
+                # Matrix/grid question — multiple rows, same column options
+                q_type = "matrix"
+                first_radios = await radiogroups[0].query_selector_all('[role="radio"]')
+                options = [(await r.get_attribute("aria-label") or "").strip() for r in first_radios]
+                rows = [(await rg.get_attribute("aria-label") or "").strip() for rg in radiogroups]
             else:
-                q_type = "radio"
-                options = [l for l in labels if l]
+                radios = await item.query_selector_all('[role="radio"]')
+                labels = [(await r.get_attribute("aria-label") or "").strip() for r in radios]
+                if len(labels) >= 3 and all(re.match(r"^\d+$", l) for l in labels):
+                    q_type = "scale"
+                    nums = [int(l) for l in labels]
+                    scale_low, scale_high = min(nums), max(nums)
+                else:
+                    q_type = "radio"
+                    options = [l for l in labels if l]
 
         elif await item.query_selector('[role="checkbox"]'):
             q_type = "checkbox"
@@ -85,6 +93,7 @@ async def scrape_page(page):
             "title": title,
             "type": q_type,
             "options": options,
+            "rows": rows if q_type == "matrix" else None,
             "required": required,
             "scale_low": scale_low,
             "scale_high": scale_high,
@@ -116,7 +125,23 @@ async def fill_question(page, q, answer):
     item = await _find_item(page, q["title"]) or q["locator"]
     q_type = q["type"]
 
-    if q_type == "short_text":
+    if q_type == "matrix":
+        if not isinstance(answer, dict):
+            return
+        radiogroups = await item.query_selector_all('[role="radiogroup"]')
+        for rg in radiogroups:
+            row_label = (await rg.get_attribute("aria-label") or "").strip()
+            row_answer = answer.get(row_label)
+            if not row_answer:
+                continue
+            radios = await rg.query_selector_all('[role="radio"]')
+            for r in radios:
+                label = (await r.get_attribute("aria-label") or "").strip()
+                if label.lower() == str(row_answer).strip().lower():
+                    await r.click()
+                    break
+
+    elif q_type == "short_text":
         el = await item.query_selector('input[type="text"]')
         if el:
             await el.fill(str(answer))

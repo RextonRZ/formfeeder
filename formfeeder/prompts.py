@@ -43,7 +43,10 @@ Return ONLY a JSON object mapping question ID to answer:
 
 def _format_question(q):
     line = f"[{q['id']}] ({q['type']}) {q['title']}"
-    if q.get("options"):
+    if q.get("type") == "matrix" and q.get("rows"):
+        line += "\n    Rows: " + ", ".join(f'"{r}"' for r in q["rows"])
+        line += "\n    Columns: " + ", ".join(f'"{o}"' for o in (q.get("options") or []))
+    elif q.get("options"):
         line += "\n    Options: " + ", ".join(f'"{o}"' for o in q["options"])
     if q.get("type") == "scale" and q.get("scale_low") is not None:
         line += f"\n    Range: {q['scale_low']}-{q['scale_high']}"
@@ -106,7 +109,17 @@ def build_response_schema(questions):
         )
         q_type = q["type"]
 
-        if q_type == "checkbox":
+        if q_type == "matrix":
+            row_props = {
+                row: {"type": "string", "enum": q.get("options", [])}
+                for row in (q.get("rows") or [])
+            }
+            properties[q["id"]] = {
+                "type": "object",
+                "properties": row_props,
+                "required": list(row_props.keys()),
+            }
+        elif q_type == "checkbox":
             items_schema = (
                 {"type": "string"} if has_other
                 else {"type": "string", "enum": q["options"]}
