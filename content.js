@@ -137,49 +137,52 @@ function status(text) {
 
 async function runBatch(count, contextHint) {
   showBadge(`formfeeder: starting…`);
-  status('Discovering form...');
-  const discovery = discoverForm();
-  status(`Form: "${discovery.title}"`);
+  try {
+    status('Discovering form...');
+    const discovery = discoverForm();
+    status(`Form: "${discovery.title}"`);
 
-  status('Analyzing form context (cached after first run)...');
-  const analysis = await chrome.runtime.sendMessage({
-    type: 'ANALYZE_FORM',
-    discovery,
-    contextHint,
-    formUrl: location.href,
-  });
-  if (analysis?.error) { hideBadge(); throw new Error(analysis.error); }
-  status(`Topic: ${analysis.topic}`);
-  status(`Target: ${analysis.target_respondent}`);
+    status('Analyzing form context (cached after first run)...');
+    const analysis = await chrome.runtime.sendMessage({
+      type: 'ANALYZE_FORM',
+      discovery,
+      contextHint,
+      formUrl: location.href,
+    });
+    if (analysis?.error) throw new Error(analysis.error);
+    status(`Topic: ${analysis.topic}`);
+    status(`Target: ${analysis.target_respondent}`);
 
-  for (let i = 1; i <= count; i++) {
-    const persona = generatePersona(analysis);
-    showBadge(`formfeeder: ${i}/${count}`);
-    status(`Run ${i}/${count} — persona: ${summarizePersona(persona)}`);
+    for (let i = 1; i <= count; i++) {
+      const persona = generatePersona(analysis);
+      showBadge(`formfeeder: ${i}/${count}`);
+      status(`Run ${i}/${count} — persona: ${summarizePersona(persona)}`);
 
-    try {
-      await runFill(analysis, persona, i, count);
-      logResult({ runIndex: i, persona, timestamp: Date.now() });
-    } catch (e) {
-      status(`Run ${i} failed: ${e.message}`);
-    }
+      try {
+        await runFill(analysis, persona, i, count);
+        logResult({ runIndex: i, persona, timestamp: Date.now() });
+      } catch (e) {
+        status(`Run ${i} failed: ${e.message}`);
+      }
 
-    if (i < count) {
-      await sleep(jitter(1500));
-      const link = [...document.querySelectorAll('a')]
-        .find(a => /submit another|hantar respons lain/i.test(a.innerText));
-      if (link) {
-        link.click();
+      if (i < count) {
         await sleep(jitter(1500));
-      } else {
-        status('No "Submit another" link — stopping');
-        break;
+        const link = [...document.querySelectorAll('a, [role="link"]')]
+          .find(a => /submit another|hantar respons lain/i.test(a.innerText));
+        if (link) {
+          link.click();
+          await sleep(jitter(1500));
+        } else {
+          status('No "Submit another" link — stopping');
+          break;
+        }
       }
     }
-  }
 
-  status(`Batch complete: ${count} response(s) submitted`);
-  hideBadge();
+    status(`Batch complete: ${count} response(s) submitted`);
+  } finally {
+    hideBadge();
+  }
 }
 
 async function runFill(analysis, persona, runIndex, totalRuns) {
