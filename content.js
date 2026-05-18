@@ -25,8 +25,64 @@ function discoverForm() {
   return { title, description, sectionHeader, page1Questions };
 }
 
-// Stub — replaced in Phase 6
-function scrapeCurrentPage() { return []; }
+function scrapeCurrentPage() {
+  const items = document.querySelectorAll('div[role="listitem"]');
+  const questions = [];
+
+  items.forEach((item, idx) => {
+    const titleEl = item.querySelector('div[role="heading"]');
+    if (!titleEl) return;
+    const title = titleEl.innerText.replace(/\s*\*$/, '').trim();
+    const required = !!item.querySelector(
+      '[aria-label*="Required"], [aria-label*="required"]'
+    );
+    const id = `q${idx}`;
+
+    let type, options, scaleLow, scaleHigh;
+
+    if (item.querySelector('textarea')) {
+      type = 'long_text';
+    } else if (item.querySelector('input[type="date"]')) {
+      type = 'date';
+    } else if (item.querySelector('input[type="time"]')) {
+      type = 'time';
+    } else if (item.querySelector('[role="radiogroup"]')) {
+      const radios = item.querySelectorAll('[role="radio"]');
+      const labels = [...radios].map(
+        r => r.getAttribute('aria-label') || r.dataset.value || ''
+      );
+      const allNumeric = labels.length >= 3 && labels.every(l => /^\d+$/.test(l.trim()));
+      if (allNumeric) {
+        type = 'scale';
+        const nums = labels.map(Number);
+        scaleLow = Math.min(...nums);
+        scaleHigh = Math.max(...nums);
+      } else {
+        type = 'radio';
+        options = labels.filter(Boolean);
+      }
+    } else if (item.querySelector('[role="checkbox"]')) {
+      type = 'checkbox';
+      options = [...item.querySelectorAll('[role="checkbox"]')]
+        .map(c => c.getAttribute('aria-label')).filter(Boolean);
+    } else if (item.querySelector('[role="listbox"]')) {
+      type = 'dropdown';
+      const listbox = item.querySelector('[role="listbox"]');
+      listbox.click();
+      options = [...document.querySelectorAll('[role="option"]')]
+        .map(o => o.innerText.trim()).filter(t => t && t !== 'Choose');
+      document.body.click();
+    } else if (item.querySelector('input[type="text"]')) {
+      type = 'short_text';
+    } else {
+      return;
+    }
+
+    questions.push({ id, domRef: item, title, type, options, required, scaleLow, scaleHigh });
+  });
+
+  return questions;
+}
 
 function status(text) {
   chrome.runtime.sendMessage({ type: 'STATUS', text }).catch(() => {});
