@@ -42,7 +42,9 @@ async def scrape_page(page):
                 # Matrix/grid question — multiple rows, same column options
                 q_type = "matrix"
                 first_radios = await radiogroups[0].query_selector_all('[role="radio"]')
-                options = [(await r.get_attribute("aria-label") or "").strip() for r in first_radios]
+                # aria-labels are like "1, response for Row" — extract just the column value
+                raw_labels = [(await r.get_attribute("aria-label") or "").strip() for r in first_radios]
+                options = [l.split(",")[0].strip() for l in raw_labels]
                 rows = [(await rg.get_attribute("aria-label") or "").strip() for rg in radiogroups]
             else:
                 radios = await item.query_selector_all('[role="radio"]')
@@ -136,8 +138,9 @@ async def fill_question(page, q, answer):
                 continue
             radios = await rg.query_selector_all('[role="radio"]')
             for r in radios:
-                label = (await r.get_attribute("aria-label") or "").strip()
-                if label.lower() == str(row_answer).strip().lower():
+                full_label = (await r.get_attribute("aria-label") or "").strip()
+                col_value = full_label.split(",")[0].strip()
+                if col_value.lower() == str(row_answer).strip().lower():
                     await r.click()
                     break
 
