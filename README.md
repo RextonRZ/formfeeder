@@ -25,6 +25,13 @@ python run.py \
 
 Or set your key once as an environment variable:
 
+**Windows (PowerShell):**
+```powershell
+$env:GEMINI_API_KEY="AIza..."
+python run.py --url "..." --count 10
+```
+
+**Mac/Linux:**
 ```bash
 export GEMINI_API_KEY=AIza...
 python run.py --url "..." --count 10
