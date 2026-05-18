@@ -52,8 +52,18 @@ $('runBtn').addEventListener('click', async () => {
   const contextHint = $('hint').value.trim();
   if (count > 5 && !confirm(`Run ${count} responses? This will make ${count + 1} Gemini API calls.`)) return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  chrome.tabs.sendMessage(tab.id, { type: 'RUN_FILL', count, contextHint });
-  appendLog(`Starting ${count} response(s)...`);
+  if (!tab) { appendLog('Error: no active tab found.'); return; }
+  if (!tab.url?.includes('docs.google.com/forms')) {
+    appendLog('Error: open a Google Form first.');
+    return;
+  }
+  chrome.tabs.sendMessage(tab.id, { type: 'RUN_FILL', count, contextHint }, () => {
+    if (chrome.runtime.lastError) {
+      appendLog(`Error: ${chrome.runtime.lastError.message}`);
+      return;
+    }
+    appendLog(`Starting ${count} response(s)...`);
+  });
 });
 
 chrome.runtime.onMessage.addListener(msg => {
