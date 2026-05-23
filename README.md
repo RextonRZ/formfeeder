@@ -1,4 +1,4 @@
-# formfeeder
+# Form Feeder
 
 A command-line tool that automatically fills Google Forms with AI-generated, persona-driven responses. Point it at any public Google Form — formfeeder reads the form, infers the target demographic, generates realistic respondent personas, and submits answers autonomously.
 
