@@ -1,32 +1,47 @@
 # Form Feeder
 
-A command-line benchmark for measuring how well a large language model can **read and complete a structured Google Form**. Point it at a form *you own*, and Form Feeder reads the questions, generates synthetic respondent profiles, and submits AI-generated answers — so you can study how coherently and consistently the model fills out real-world forms.
+A command-line tool for generating **labeled bot-submission data to train and evaluate form-filling bot detectors.** Form Feeder uses an LLM to autonomously fill out a form you control, while recording rich telemetry about *how* the form was filled — producing a clean, labeled "bot" class you can pair with real human submissions to build a detection dataset.
 
 Built on [Playwright](https://playwright.dev/) and [Gemini 2.5 Flash](https://deepmind.google/models/gemini/flash/).
 
 ---
 
-## Intended Use & Scope
+## What this is for
 
-This is a **capability-evaluation tool**, not a survey-stuffing tool.
+Automated form submissions are a real problem — survey fraud, fake sign-ups, poll manipulation. Detecting them is hard because a modern LLM produces plausible, in-range, varied *answers*; the content alone is a weak signal. The strong signal is **behavioral and environmental**: how the form was filled, not what was entered.
 
-- Run it **only against Google Forms you own or have explicit permission to test.**
-- Every submission is **AI-generated synthetic data**, logged as such. It is not meant to imitate real human respondents or be mixed into a live dataset.
-- Use it to answer questions like: *Can the model parse this form correctly? Does it produce valid, in-range answers? Does it stay consistent with the persona it was given? How does it handle multi-page forms or conditional logic?*
+Form Feeder exists to generate the **bot half of a detection dataset**: realistic automated submissions, fully labeled, captured alongside the telemetry a detector would actually learn from. You pair it with consented human submissions to the same form, train a classifier, and measure how well it separates the two.
 
-Submitting machine-generated responses to forms you don't control — surveys, polls, sign-ups, contests — corrupts other people's data and typically violates Google's Terms of Service. Don't do it. This project exists to benchmark the model, not to deceive a form owner.
+### Scope & ethics
+
+- Run the bot **only against forms you own or are explicitly authorized to test.**
+- Collect human submissions **with consent**, and store telemetry per your privacy obligations.
+- Every record this tool produces is labeled `bot` — it is training data, never meant to be mixed into a live response set or passed off as human.
+
+Using automation to submit responses to forms you don't control corrupts other people's data and violates most platforms' terms of service. This project is for building defenses against that, not for doing it.
 
 ---
 
-## How It Works
+## A note on instrumentation (read this before you start)
 
-1. Opens your form in a headless Chromium browser.
-2. Makes a single Gemini API call to parse the form's structure and questions (result is cached — repeat runs skip this step).
-3. Generates a **labeled synthetic respondent profile** to act as a test fixture for the run.
-4. Fills each page, clicks Next, and repeats until submission.
-5. Clicks "Submit another response" and loops for the requested count.
+The most discriminative bot-detection features — mouse movement, keystroke cadence, per-field dwell time, scroll behavior — require capturing telemetry **from the client filling the form.** You can't inject that capture into a Google Form you don't host. So there are two collection modes:
 
-Progress is printed to the terminal. Each run is appended to `runs.jsonl` in your working directory, flagged as synthetic.
+- **`google` mode** — fills a real Google Form. You only get *observable* signals: submission timing, inter-submission intervals, and the answer content itself. Thinner, but zero setup.
+- **`hosted` mode** (recommended) — point the tool at a small self-hosted form that mirrors your target's structure and ships with the telemetry-capture script bundled in this repo. You control both the bot and the instrumentation, so you get the full behavioral feature set for both classes. This is the mode that produces a serious dataset.
+
+Use the same form for both your bot and human classes so the form itself doesn't become a confound.
+
+---
+
+## Signals captured
+
+In `hosted` mode, each submission record includes:
+
+- **Behavioral** — total time-on-page, per-field dwell and inter-keystroke timing, mouse-movement path features, scroll pattern, field focus/blur order, paste-vs-type events, and corrections (backspaces, re-edits). Across a run, inter-submission intervals.
+- **Environmental** — `navigator.webdriver`, plugin/canvas/WebGL fingerprint, timezone-vs-IP consistency, user-agent and automation-flag anomalies.
+- **Content** — answer-length distribution, lexical diversity, templated-phrasing markers, cross-response consistency. Included so you can measure how much *weaker* content-only detection is.
+
+In `google` mode, only submission timing and content features are available.
 
 ---
 
@@ -34,7 +49,7 @@ Progress is printed to the terminal. Each run is appended to `runs.jsonl` in you
 
 - Python 3.10+
 - A [Gemini API key](https://aistudio.google.com/apikey) (free tier works)
-- A Google Form **you own or are authorized to test**, publicly accessible (no login required to fill)
+- A form **you own or are authorized to test** — a Google Form (`google` mode) or the bundled self-hosted form (`hosted` mode)
 
 ---
 
@@ -45,22 +60,21 @@ pip install git+https://github.com/RextonRZ/formfeeder.git
 python -m playwright install chromium
 ```
 
-No cloning or config files needed.
-
 ---
 
 ## Usage
 
 ```bash
-python -m formfeeder --url "<your-google-form-url>" --count <number> --key "<gemini-api-key>"
+python -m formfeeder --url "<your-form-url>" --mode <google|hosted> --count <number> --key "<gemini-api-key>"
 ```
 
-**Example:**
+**Example (hosted mode, full telemetry):**
 
 ```bash
 python -m formfeeder \
-  --url "https://docs.google.com/forms/d/e/YOUR_FORM_ID/viewform" \
-  --count 20 \
+  --url "http://localhost:8000/form" \
+  --mode hosted \
+  --count 50 \
   --key "AIzaSy..."
 ```
 
@@ -68,10 +82,12 @@ python -m formfeeder \
 
 | Flag | Required | Description |
 |---|---|---|
-| `--url` | Yes | Viewform URL of a Google Form you own or are authorized to test |
-| `--count` | No | Number of synthetic responses to generate (default: `5`) |
+| `--url` | Yes | URL of a form you own or are authorized to test |
+| `--mode` | No | `google` (observable signals only) or `hosted` (full telemetry). Default: `google` |
+| `--count` | No | Number of bot submissions to generate (default: `5`) |
 | `--key` | No* | Gemini API key — can also be set via `GEMINI_API_KEY` env var |
-| `--hint` | No | Extra context to steer the synthetic profiles, e.g. `"Test respondents are university students aged 18–25"` |
+| `--bot-type` | No | Label tag for this run, e.g. `llm-gemini`, so your dataset can distinguish bot families (default: `llm-gemini`) |
+| `--hint` | No | Extra context to vary the synthetic profiles, e.g. `"Respondents are students aged 18–25"` |
 | `--debug` | No | Show the browser window while filling so you can watch it work |
 
 *Required if `GEMINI_API_KEY` is not set in your environment.
@@ -82,51 +98,45 @@ python -m formfeeder \
 
 ```powershell
 $env:GEMINI_API_KEY = "AIzaSy..."
-python -m formfeeder --url "..." --count 20
+python -m formfeeder --url "..." --mode hosted --count 50
 ```
 
 **macOS / Linux:**
 
 ```bash
 export GEMINI_API_KEY=AIzaSy...
-python -m formfeeder --url "..." --count 20
+python -m formfeeder --url "..." --mode hosted --count 50
 ```
-
-### Using `--hint` to steer synthetic profiles
-
-If you want the test fixtures to reflect a particular type of respondent — useful when you're checking how the model handles a specific phrasing or audience — pass a hint:
-
-```bash
-python -m formfeeder \
-  --url "https://docs.google.com/forms/d/e/YOUR_FORM_ID/viewform" \
-  --count 10 \
-  --hint "Test respondents are postgraduate researchers in Malaysia"
-```
-
----
-
-## Performance
-
-Each response takes roughly **30–90 seconds** depending on form length (one Gemini API call per page). As a rough benchmark, a 5-page form with 10 responses takes approximately **10–15 minutes**.
 
 ---
 
 ## Output
 
-Each run is appended to `runs.jsonl` in the directory you ran the command from. Entries are explicitly marked as synthetic so they're never mistaken for genuine responses:
+Each submission is appended to `runs.jsonl` in your working directory. Every record carries an explicit `label` and the telemetry available for the mode:
 
 ```jsonl
-{"run_index": 1, "synthetic": true, "profile": {"age": 22, "occupation": "student", ...}, "timestamp": 1747123456}
-{"run_index": 2, "synthetic": true, "profile": {"age": 35, "occupation": "engineer", ...}, "timestamp": 1747123512}
+{"run_index": 1, "label": "bot", "bot_type": "llm-gemini", "telemetry": {"time_on_page_ms": 4120, "keystroke_count": 0, "mouse_path_points": 0, "navigator_webdriver": true, ...}, "profile": {"age": 22, "occupation": "student"}, "timestamp": 1747123456}
+{"run_index": 2, "label": "bot", "bot_type": "llm-gemini", "telemetry": {"time_on_page_ms": 3890, "keystroke_count": 0, "mouse_path_points": 0, "navigator_webdriver": true, ...}, "profile": {"age": 35, "occupation": "engineer"}, "timestamp": 1747123512}
 ```
+
+Capture your consented human submissions in the same schema with `"label": "human"`, then extract a per-response feature vector for your classifier.
+
+---
+
+## Dataset design tips
+
+- **Hold out whole forms, not rows**, in your test split — so you measure generalization to unseen forms rather than memorization of one.
+- **Label by bot family** (`--bot-type`) — collect runs from this LLM tool *and* simpler baselines (naive autofill, record-replay macros) so your detector generalizes beyond one bot.
+- **Watch class balance** between bot and human, and across forms.
+- **Same form for both classes**, as above, to avoid the form becoming the thing your model actually learns.
 
 ---
 
 ## Known Limitations
 
-- **Conditional branching** — if the form routes respondents to different sections based on answers, some profiles may trigger an unexpected path. The tool detects this, skips the affected run, and continues with the next profile.
-- **Login-required forms** — the form must be accessible without a Google account.
-- **Gemini free tier rate limit** — the free tier allows ~15 requests per minute. For large runs, expect some pacing delays.
+- **Google mode is signal-poor** — without client instrumentation you only get timing and content. For a real detector, use `hosted` mode.
+- **Conditional branching** — if a form routes to different sections by answer, some profiles may take an unexpected path. The tool detects this, skips the run, and continues.
+- **Gemini free tier rate limit** — ~15 requests/minute on the free tier; large runs will pace themselves.
 
 ---
 
